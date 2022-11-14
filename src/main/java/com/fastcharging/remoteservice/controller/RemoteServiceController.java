@@ -19,13 +19,12 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,9 +43,6 @@ import com.fastcharging.remoteservice.dto.RemoteStartTransactionEnhancedDto;
 import com.fastcharging.remoteservice.dto.ReserveNowDto;
 import com.fastcharging.remoteservice.dto.UserRestConsumer;
 import com.fastcharging.remoteservice.model.ConnectorStatusDistanceDbApi;
-import com.fastcharging.remoteservice.model.ReservationDbApi;
-import com.fastcharging.remoteservice.model.TransactionMonitorDbApi;
-import com.fastcharging.remoteservice.model.TransactionStartDbApi;
 import com.fastcharging.remoteservice.util.HaversineDistanceCalculator;
 
 @RestController
@@ -78,8 +74,14 @@ public class RemoteServiceController {
 
     @RequestMapping(value = "/RemoteStartTransactionEnhanced/{kwhMobil}", method = RequestMethod.POST)
     public ResponseEntity<?> remoteStartTransactionEnhancedDto(
+            @RequestHeader HttpHeaders headers,
             @Valid @RequestBody RemoteStartTransactionEnhancedDto remoteStartTransactionEnhancedDto,
-            @PathVariable("kwhMobil") Double kwhMobil) {
+            @PathVariable("kwhMobil") Double kwhMobil) throws Exception {
+
+        UserRestConsumer user = userClient.getUserDetail(headers);
+        if (!user.getStatus().toString().equalsIgnoreCase("success")) {
+            throw new Exception("Data pengguna tidak ditemukan.");
+        }
 
         double latitudeCS = remoteStartTransactionEnhancedDto.getLatitudeCS();
         double longitudeCS = remoteStartTransactionEnhancedDto.getLongitudeCS();
@@ -101,8 +103,8 @@ public class RemoteServiceController {
             String permitted = ok ? "Permitted to charge" : "Not permitted to charge";
 
             if (ok) {
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+                HttpHeaders headers2 = new HttpHeaders();
+                headers2.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
                 MultiValueMap<String, Object> map = new LinkedMultiValueMap<>();
                 map.add("chargeboxid", remoteStartTransactionEnhancedDto.getChargeboxid());
@@ -143,6 +145,9 @@ public class RemoteServiceController {
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
         headers.set(dbapi_auth_param, dbapi_auth_value);
         HttpEntity<String> entity = new HttpEntity<String>(headers);
+
+        String bearerToken = headers.getFirst(HttpHeaders.AUTHORIZATION);
+        String token = bearerToken.substring(7);
 
         UserRestConsumer user = userClient.getUserDetail(headers);
         if (!user.getStatus().toString().equalsIgnoreCase("success")) {
@@ -253,194 +258,5 @@ public class RemoteServiceController {
         // HttpMethod.POST, postEntity, String.class);
 
         return response;
-    }
-
-    @RequestMapping(value = "/allCSFilteredPlugType/{max}/{origin}/{pageNo}/{pageSize}/{plugType}", method = RequestMethod.GET)
-    public ResponseEntity<?> filterByDistanceConectorType(@PathVariable long max, @PathVariable String origin,
-            @PathVariable int pageNo, @PathVariable int pageSize, @PathVariable String plugType) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-        headers.set(dbapi_auth_param, dbapi_auth_value);
-        HttpEntity<String> entity = new HttpEntity<String>(headers);
-
-        String strPass = dbapi_baseurl + "connector_status/allCSFilteredPlugType/" + String.valueOf(max) + "/"
-                + String.valueOf(origin) + "/" + String.valueOf(pageNo) + "/" + String.valueOf(pageSize) + "/"
-                + plugType;
-
-        URL conn_status_url;
-        try {
-
-            conn_status_url = new URL(strPass);
-
-            String c_status = restTemplate.exchange(conn_status_url.toURI(), HttpMethod.GET, entity, String.class)
-                    .getBody();
-
-            JsonNode jsonNodeCS = objectMapper.readTree(c_status);
-            String data_txt = jsonNodeCS.get("data").toString();
-
-            log.info(data_txt);
-            log.info(strPass);
-
-            ConnectorStatusDistanceDbApi[] conn_status = objectMapper.readValue(data_txt,
-                    ConnectorStatusDistanceDbApi[].class);
-
-            HashMap<String, Object> mapSuccess = new HashMap<>();
-            mapSuccess.put("status", "success");
-            mapSuccess.put("data", conn_status);
-            mapSuccess.put("message", "List CS terdekat by Connector/plug");
-
-            return new ResponseEntity<Object>(mapSuccess, HttpStatus.OK);
-
-        } catch (RestClientException | JsonProcessingException | MalformedURLException | URISyntaxException e) {
-            HashMap<String, String> mapError = new HashMap<>();
-            mapError.put("status", "error");
-            mapError.put("message", e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapError);
-        }
-    }
-
-    @RequestMapping(value = "/reservation/current", method = RequestMethod.GET)
-    public ResponseEntity<?> getReservationList() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-        headers.set(dbapi_auth_param, dbapi_auth_value);
-        HttpEntity<String> entity = new HttpEntity<String>(headers);
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        org.springframework.security.core.userdetails.User userx = (org.springframework.security.core.userdetails.User) authentication
-                .getPrincipal();
-
-        User user = userService.findByUsername(userx.getUsername());
-
-        String idTag = user.getTag_id();
-
-        URL conn_reservation_url;
-        try {
-            conn_reservation_url = new URL(dbapi_baseurl + "reservation/current/" + idTag);
-
-            String c_status = restTemplate.exchange(conn_reservation_url.toURI(), HttpMethod.GET, entity, String.class)
-                    .getBody();
-
-            JsonNode jsonNodeCS = objectMapper.readTree(c_status);
-            String data_txt = jsonNodeCS.get("data").toString();
-
-            log.info(data_txt);
-
-            ReservationDbApi[] conn_reservation = objectMapper.readValue(data_txt, ReservationDbApi[].class);
-
-            HashMap<String, Object> mapSuccess = new HashMap<>();
-            mapSuccess.put("status", "success");
-            mapSuccess.put("data", conn_reservation);
-            mapSuccess.put("message", "List reservation complete ");
-
-            return new ResponseEntity<Object>(mapSuccess, HttpStatus.OK);
-
-        } catch (MalformedURLException | RestClientException | URISyntaxException | JsonProcessingException e) {
-            HashMap<String, String> mapError = new HashMap<>();
-            mapError.put("status", "error");
-            mapError.put("message", e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapError);
-        }
-    }
-
-    @RequestMapping(value = "/remote_start/currentstrict", method = RequestMethod.GET)
-    public ResponseEntity<?> getRemoteStartErrorIfNotFound() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-        headers.set(dbapi_auth_param, dbapi_auth_value);
-        HttpEntity<String> entity = new HttpEntity<String>(headers);
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        org.springframework.security.core.userdetails.User userx = (org.springframework.security.core.userdetails.User) authentication
-                .getPrincipal();
-
-        User user = userService.findByUsername(userx.getUsername());
-
-        String idTag = user.getTag_id();
-
-        URL conn_remote_start_url;
-        try {
-            conn_remote_start_url = new URL(dbapi_baseurl + "transaction/currentRemoteStart/" + idTag);
-
-            String c_status = restTemplate.exchange(conn_remote_start_url.toURI(), HttpMethod.GET, entity, String.class)
-                    .getBody();
-
-            JsonNode jsonNodeCS = objectMapper.readTree(c_status);
-            String data_txt = jsonNodeCS.get("data").toString();
-
-            log.info(data_txt);
-
-            TransactionStartDbApi[] conn_remote_start = objectMapper.readValue(data_txt, TransactionStartDbApi[].class);
-
-            if (conn_remote_start.length < 1) {
-                HashMap<String, String> mapError = new HashMap<>();
-                mapError.put("status", "error");
-                mapError.put("message", "transaction not found!");
-
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapError);
-            }
-
-            HashMap<String, Object> mapSuccess = new HashMap<>();
-            mapSuccess.put("status", "success");
-            mapSuccess.put("data", conn_remote_start);
-            mapSuccess.put("message", "List remote start transaction complete ");
-
-            return new ResponseEntity<Object>(mapSuccess, HttpStatus.OK);
-
-        } catch (MalformedURLException | RestClientException | URISyntaxException | JsonProcessingException e) {
-            HashMap<String, String> mapError = new HashMap<>();
-            mapError.put("status", "error");
-            mapError.put("message", e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapError);
-        }
-    }
-
-    @RequestMapping(value = "/transaction/byTag/{pageNo}/{pageSize}", method = RequestMethod.GET)
-    public ResponseEntity<?> getTransactionListByTag(@PathVariable int pageNo,
-            @PathVariable int pageSize) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-        headers.set(dbapi_auth_param, dbapi_auth_value);
-        HttpEntity<String> entity = new HttpEntity<String>(headers);
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        org.springframework.security.core.userdetails.User userx = (org.springframework.security.core.userdetails.User) authentication
-                .getPrincipal();
-
-        User user = userService.findByUsername(userx.getUsername());
-
-        String idTag = user.getTag_id();
-        // String idTag = "0431246AFA2B80";
-
-        URL conn_status_url;
-        try {
-            conn_status_url = new URL(dbapi_baseurl + "transactionmonitor/byIdtag/" + idTag + "/"
-                    + String.valueOf(pageNo) + "/" + String.valueOf(pageSize));
-
-            String c_status = restTemplate.exchange(conn_status_url.toURI(), HttpMethod.GET, entity, String.class)
-                    .getBody();
-
-            JsonNode jsonNodeCS = objectMapper.readTree(c_status);
-            String data_txt = jsonNodeCS.get("data").toString();
-
-            TransactionMonitorDbApi[] conn_status = objectMapper.readValue(data_txt, TransactionMonitorDbApi[].class);
-
-            HashMap<String, Object> mapSuccess = new HashMap<>();
-            mapSuccess.put("status", "success");
-            mapSuccess.put("data", conn_status);
-            mapSuccess.put("message", "List status connector complete ");
-
-            return new ResponseEntity<Object>(mapSuccess, HttpStatus.OK);
-
-        } catch (MalformedURLException | RestClientException | URISyntaxException | JsonProcessingException e) {
-            HashMap<String, String> mapError = new HashMap<>();
-            mapError.put("status", "error");
-            mapError.put("message", e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapError);
-        }
     }
 }
