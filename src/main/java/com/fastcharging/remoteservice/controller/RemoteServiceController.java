@@ -140,12 +140,8 @@ public class RemoteServiceController {
     }
 
     @RequestMapping(value = "/RemoteStopTransactionEnhanced", method = RequestMethod.POST)
-    public ResponseEntity<?> remoteStopTransactionEnhanced() throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-        headers.set(dbapi_auth_param, dbapi_auth_value);
-        HttpEntity<String> entity = new HttpEntity<String>(headers);
-
+    public ResponseEntity<?> remoteStopTransactionEnhanced(
+            @RequestHeader HttpHeaders headers) throws Exception {
         String bearerToken = headers.getFirst(HttpHeaders.AUTHORIZATION);
         String token = bearerToken.substring(7);
 
@@ -155,6 +151,11 @@ public class RemoteServiceController {
         }
 
         String idTag = user.getData().getTag_id();
+
+        HttpHeaders header = new HttpHeaders();
+        header.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+        header.set(dbapi_auth_param, dbapi_auth_value);
+        HttpEntity<String> entity = new HttpEntity<String>(header);
 
         // URL conn_remote_start_url;
         return new ResponseEntity<Object>(idTag, HttpStatus.OK);
@@ -210,10 +211,23 @@ public class RemoteServiceController {
     }
 
     @RequestMapping(value = "/ReserveNowTransaction", method = RequestMethod.POST)
-    public ResponseEntity<?> reserveNowTransaction(@Valid @RequestBody ReserveNowDto reserveNowDto)
-            throws ParseException {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+    public ResponseEntity<?> reserveNowTransaction(
+            @RequestHeader HttpHeaders headers,
+            @Valid @RequestBody ReserveNowDto reserveNowDto)
+            throws Exception {
+
+        String bearerToken = headers.getFirst(HttpHeaders.AUTHORIZATION);
+        String token = bearerToken.substring(7);
+
+        UserRestConsumer user = userClient.getUserDetail(headers);
+        if (!user.getStatus().toString().equalsIgnoreCase("success")) {
+            throw new Exception("Data pengguna tidak ditemukan.");
+        }
+
+        String idTag = user.getData().getTag_id();
+
+        HttpHeaders header = new HttpHeaders();
+        header.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         // headers.set(dbapi_auth_param, dbapi_auth_value);
 
         DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
@@ -221,11 +235,11 @@ public class RemoteServiceController {
 
         MultiValueMap<String, Object> map = new LinkedMultiValueMap<>();
         map.add("chargeboxid", reserveNowDto.getChargeboxid());
-        map.add("idTag", reserveNowDto.getIdTag());
+        map.add("idTag", idTag);
         map.add("connectorId", reserveNowDto.getConnectorId());
         map.add("expiryDate", strDate);
 
-        HttpEntity<MultiValueMap<String, Object>> postEntity = new HttpEntity<>(map, headers);
+        HttpEntity<MultiValueMap<String, Object>> postEntity = new HttpEntity<>(map, header);
 
         ResponseEntity<String> response = restTemplate.exchange(csmsUrl + "ReserveNowTransaction", HttpMethod.POST,
                 postEntity, String.class);
